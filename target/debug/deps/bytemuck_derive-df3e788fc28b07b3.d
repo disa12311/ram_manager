@@ -1,6 +1,0 @@
-/workspaces/ram_manager/target/debug/deps/bytemuck_derive-df3e788fc28b07b3.d: /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bytemuck_derive-1.10.2/src/lib.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bytemuck_derive-1.10.2/src/traits.rs
-
-/workspaces/ram_manager/target/debug/deps/libbytemuck_derive-df3e788fc28b07b3.so: /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bytemuck_derive-1.10.2/src/lib.rs /home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bytemuck_derive-1.10.2/src/traits.rs
-
-/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bytemuck_derive-1.10.2/src/lib.rs:
-/home/codespace/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bytemuck_derive-1.10.2/src/traits.rs:
