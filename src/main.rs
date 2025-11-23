@@ -1,19 +1,97 @@
+#![windows_subsystem = "windows"] // Ẩn console window khi release
+
 mod ram_manager;
 mod gui;
 
 use eframe::egui;
+use std::env;
 
 fn main() -> Result<(), eframe::Error> {
+    // Check for admin privileges
+    if !is_elevated() {
+        show_admin_warning();
+    }
+
+    // Setup logging
+    env::set_var("RUST_LOG", "info");
+    
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 800.0])
-            .with_min_inner_size([900.0, 600.0]),
+            .with_min_inner_size([900.0, 600.0])
+            .with_icon(load_icon()),
         ..Default::default()
     };
 
     eframe::run_native(
-        "Advanced RAM Manager",
+        "Advanced RAM Manager v1.0.0",
         options,
-        Box::new(|_cc| Ok(Box::new(gui::RamManagerApp::default()))),
+        Box::new(|cc| {
+            // Configure fonts
+            configure_fonts(&cc.egui_ctx);
+            Ok(Box::new(gui::RamManagerApp::default()))
+        }),
     )
+}
+
+fn is_elevated() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use std::mem;
+        use windows::Win32::Security::*;
+        use windows::Win32::Foundation::*;
+        use windows::Win32::System::Threading::*;
+
+        unsafe {
+            let mut token: HANDLE = HANDLE::default();
+            if OpenProcessToken(
+                GetCurrentProcess(),
+                TOKEN_QUERY,
+                &mut token
+            ).is_ok() {
+                let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
+                let mut size = 0u32;
+                
+                if GetTokenInformation(
+                    token,
+                    TokenElevation,
+                    Some(&mut elevation as *mut _ as *mut _),
+                    mem::size_of::<TOKEN_ELEVATION>() as u32,
+                    &mut size
+                ).is_ok() {
+                    let _ = CloseHandle(token);
+                    return elevation.TokenIsElevated != 0;
+                }
+                let _ = CloseHandle(token);
+            }
+        }
+    }
+    false
+}
+
+fn show_admin_warning() {
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        let _ = Command::new("cmd")
+            .args(&[
+                "/C",
+                "echo Tool cần quyền Administrator! && echo. && echo Vui lòng: && echo 1. Đóng tool && echo 2. Chuột phải - Run as Administrator && pause"
+            ])
+            .spawn();
+    }
+}
+
+fn load_icon() -> eframe::IconData {
+    // Placeholder - thêm icon của bạn ở đây
+    eframe::IconData {
+        rgba: vec![],
+        width: 0,
+        height: 0,
+    }
+}
+
+fn configure_fonts(_ctx: &egui::Context) {
+    // Cấu hình fonts tùy chỉnh nếu cần
+    // Ví dụ: thêm font Vietnamese
 }

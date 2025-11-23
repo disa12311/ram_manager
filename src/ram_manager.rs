@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::{HANDLE, CloseHandle};
 use windows::Win32::System::Threading::{
     OpenProcess, PROCESS_ALL_ACCESS, PROCESS_SET_QUOTA, PROCESS_QUERY_INFORMATION,
@@ -15,6 +16,7 @@ pub struct ProcessInfo {
     pub memory_mb: f64,
     pub working_set_mb: f64,
     pub status: ProcessStatus,
+    pub cpu_usage: f32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -23,6 +25,7 @@ pub enum ProcessStatus {
     Pinned,
     Trimmed,
     Limited,
+    HighPriority,
 }
 
 impl ProcessStatus {
@@ -32,6 +35,7 @@ impl ProcessStatus {
             ProcessStatus::Pinned => "Đã ghim",
             ProcessStatus::Trimmed => "Đã trim",
             ProcessStatus::Limited => "Giới hạn",
+            ProcessStatus::HighPriority => "Ưu tiên cao",
         }
     }
 
@@ -41,13 +45,24 @@ impl ProcessStatus {
             ProcessStatus::Pinned => [46, 204, 113],
             ProcessStatus::Trimmed => [52, 152, 219],
             ProcessStatus::Limited => [230, 126, 34],
+            ProcessStatus::HighPriority => [155, 89, 182],
+        }
+    }
+
+    pub fn icon(&self) -> &str {
+        match self {
+            ProcessStatus::Normal => "⚪",
+            ProcessStatus::Pinned => "📌",
+            ProcessStatus::Trimmed => "🗜️",
+            ProcessStatus::Limited => "⚠️",
+            ProcessStatus::HighPriority => "⚡",
         }
     }
 }
 
 pub struct RamManager {
     system: System,
-    process_states: HashMap<u32, ProcessStatus>,
+    process_states: Arc<Mutex<HashMap<u32, ProcessStatus>>>,
 }
 
 impl RamManager {
@@ -56,7 +71,7 @@ impl RamManager {
         sys.refresh_all();
         RamManager {
             system: sys,
-            process_states: HashMap::new(),
+            process_states: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -69,11 +84,14 @@ impl RamManager {
             total_ram_gb: self.system.total_memory() as f64 / 1024.0 / 1024.0 / 1024.0,
             used_ram_gb: self.system.used_memory() as f64 / 1024.0 / 1024.0 / 1024.0,
             available_ram_gb: self.system.available_memory() as f64 / 1024.0 / 1024.0 / 1024.0,
+            process_count: self.system.processes().len(),
         }
     }
 
     pub fn list_processes(&mut self) -> Vec<ProcessInfo> {
         self.refresh();
+        let states = self.process_states.lock().unwrap();
+        
         let mut processes: Vec<ProcessInfo> = self
             .system
             .processes()
@@ -85,11 +103,8 @@ impl RamManager {
                     name: proc.name().to_string(),
                     memory_mb: proc.memory() as f64 / 1024.0 / 1024.0,
                     working_set_mb: proc.memory() as f64 / 1024.0 / 1024.0,
-                    status: self
-                        .process_states
-                        .get(&pid_u32)
-                        .cloned()
-                        .unwrap_or(ProcessStatus::Normal),
+                    status: states.get(&pid_u32).cloned().unwrap_or(ProcessStatus::Normal),
+                    cpu_usage: proc.cpu_usage(),
                 }
             })
             .collect();
@@ -101,39 +116,37 @@ impl RamManager {
     pub fn pin_to_ram(&mut self, pid: u32, working_set_mb: usize) -> Result<String, String> {
         unsafe {
             let handle = OpenProcess(PROCESS_SET_QUOTA | PROCESS_QUERY_INFORMATION, false, pid)
-                .map_err(|e| format!("Không thể mở tiến trình: {}", e))?;
+                .map_err(|e| format!("Không thể mở tiến trình: {:?}", e))?;
 
             let min_size = (working_set_mb * 1024 * 1024) as usize;
             let max_size = (working_set_mb * 2 * 1024 * 1024) as usize;
 
             SetProcessWorkingSetSize(handle, min_size, max_size)
-                .map_err(|e| format!("Không thể đặt working set: {}", e))?;
+                .map_err(|e| format!("Không thể đặt working set: {:?}", e))?;
 
             SetPriorityClass(handle, HIGH_PRIORITY_CLASS)
-                .map_err(|e| format!("Không thể đặt priority: {}", e))?;
+                .map_err(|e| format!("Không thể đặt priority: {:?}", e))?;
 
             let _ = CloseHandle(handle);
 
-            self.process_states.insert(pid, ProcessStatus::Pinned);
-            Ok(format!(
-                "✅ Đã ghim PID {} vào RAM ({} MB)",
-                pid, working_set_mb
-            ))
+            self.process_states.lock().unwrap().insert(pid, ProcessStatus::Pinned);
+            Ok(format!("✅ Đã ghim PID {} vào RAM ({} MB)", pid, working_set_mb))
         }
     }
 
     pub fn trim_working_set(&mut self, pid: u32) -> Result<String, String> {
         unsafe {
             let handle = OpenProcess(PROCESS_ALL_ACCESS, false, pid)
-                .map_err(|e| format!("Không thể mở tiến trình: {}", e))?;
+                .map_err(|e| format!("Không thể mở tiến trình: {:?}", e))?;
 
             let before = self.get_process_memory_info_internal(handle)?;
             let before_ws = before.WorkingSetSize as f64 / 1024.0 / 1024.0;
 
-            EmptyWorkingSet(handle).map_err(|e| format!("Không thể trim working set: {}", e))?;
+            EmptyWorkingSet(handle)
+                .map_err(|e| format!("Không thể trim working set: {:?}", e))?;
 
             SetPriorityClass(handle, IDLE_PRIORITY_CLASS)
-                .map_err(|e| format!("Không thể đặt priority: {}", e))?;
+                .map_err(|e| format!("Không thể đặt priority: {:?}", e))?;
 
             std::thread::sleep(std::time::Duration::from_millis(300));
 
@@ -143,7 +156,7 @@ impl RamManager {
 
             let _ = CloseHandle(handle);
 
-            self.process_states.insert(pid, ProcessStatus::Trimmed);
+            self.process_states.lock().unwrap().insert(pid, ProcessStatus::Trimmed);
             Ok(format!(
                 "✅ Đã trim PID {}\n📉 Trước: {:.1} MB → Sau: {:.1} MB\n💾 Giải phóng: {:.1} MB",
                 pid, before_ws, after_ws, freed
@@ -154,52 +167,43 @@ impl RamManager {
     pub fn limit_resources(&mut self, pid: u32, max_ws_mb: usize) -> Result<String, String> {
         unsafe {
             let handle = OpenProcess(PROCESS_SET_QUOTA | PROCESS_QUERY_INFORMATION, false, pid)
-                .map_err(|e| format!("Không thể mở tiến trình: {}", e))?;
+                .map_err(|e| format!("Không thể mở tiến trình: {:?}", e))?;
 
             let max_size = (max_ws_mb * 1024 * 1024) as usize;
             let min_size = (max_ws_mb / 2 * 1024 * 1024) as usize;
 
             SetProcessWorkingSetSize(handle, min_size, max_size)
-                .map_err(|e| format!("Không thể giới hạn working set: {}", e))?;
+                .map_err(|e| format!("Không thể giới hạn working set: {:?}", e))?;
 
             SetPriorityClass(handle, IDLE_PRIORITY_CLASS)
-                .map_err(|e| format!("Không thể đặt priority: {}", e))?;
+                .map_err(|e| format!("Không thể đặt priority: {:?}", e))?;
 
             let _ = CloseHandle(handle);
 
-            self.process_states.insert(pid, ProcessStatus::Limited);
-            Ok(format!(
-                "✅ Đã giới hạn PID {} (Max: {} MB, Priority: IDLE)",
-                pid, max_ws_mb
-            ))
+            self.process_states.lock().unwrap().insert(pid, ProcessStatus::Limited);
+            Ok(format!("✅ Đã giới hạn PID {} (Max: {} MB, Priority: IDLE)", pid, max_ws_mb))
         }
     }
 
     pub fn restore_process(&mut self, pid: u32) -> Result<String, String> {
         unsafe {
             let handle = OpenProcess(PROCESS_SET_QUOTA | PROCESS_QUERY_INFORMATION, false, pid)
-                .map_err(|e| format!("Không thể mở tiến trình: {}", e))?;
+                .map_err(|e| format!("Không thể mở tiến trình: {:?}", e))?;
 
             SetProcessWorkingSetSize(handle, usize::MAX, usize::MAX)
-                .map_err(|e| format!("Không thể reset working set: {}", e))?;
+                .map_err(|e| format!("Không thể reset working set: {:?}", e))?;
 
             SetPriorityClass(handle, NORMAL_PRIORITY_CLASS)
-                .map_err(|e| format!("Không thể đặt priority: {}", e))?;
+                .map_err(|e| format!("Không thể đặt priority: {:?}", e))?;
 
             let _ = CloseHandle(handle);
 
-            self.process_states.remove(&pid);
-            Ok(format!(
-                "✅ Đã khôi phục PID {} về trạng thái bình thường",
-                pid
-            ))
+            self.process_states.lock().unwrap().remove(&pid);
+            Ok(format!("✅ Đã khôi phục PID {} về trạng thái bình thường", pid))
         }
     }
 
-    fn get_process_memory_info_internal(
-        &self,
-        handle: HANDLE,
-    ) -> Result<PROCESS_MEMORY_COUNTERS, String> {
+    fn get_process_memory_info_internal(&self, handle: HANDLE) -> Result<PROCESS_MEMORY_COUNTERS, String> {
         unsafe {
             let mut pmc = PROCESS_MEMORY_COUNTERS::default();
             GetProcessMemoryInfo(
@@ -207,8 +211,17 @@ impl RamManager {
                 &mut pmc,
                 std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
             )
-            .map_err(|e| format!("Không thể lấy thông tin bộ nhớ: {}", e))?;
+            .map_err(|e| format!("Không thể lấy thông tin bộ nhớ: {:?}", e))?;
             Ok(pmc)
+        }
+    }
+
+    pub fn get_statistics(&self) -> RamStatistics {
+        let states = self.process_states.lock().unwrap();
+        RamStatistics {
+            pinned_count: states.values().filter(|s| **s == ProcessStatus::Pinned).count(),
+            trimmed_count: states.values().filter(|s| **s == ProcessStatus::Trimmed).count(),
+            limited_count: states.values().filter(|s| **s == ProcessStatus::Limited).count(),
         }
     }
 }
@@ -217,4 +230,11 @@ pub struct SystemInfo {
     pub total_ram_gb: f64,
     pub used_ram_gb: f64,
     pub available_ram_gb: f64,
+    pub process_count: usize,
+}
+
+pub struct RamStatistics {
+    pub pinned_count: usize,
+    pub trimmed_count: usize,
+    pub limited_count: usize,
 }
