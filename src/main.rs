@@ -82,12 +82,38 @@ fn show_admin_warning() {
     }
 }
 
-fn load_icon() -> eframe::IconData {
-    // Placeholder - thêm icon của bạn ở đây
-    eframe::IconData {
-        rgba: vec![],
-        width: 0,
-        height: 0,
+fn load_icon() -> egui::IconData {
+    // Load icon từ file PNG
+    // Đặt file icon.png trong thư mục assets/
+    let icon_bytes = include_bytes!("../assets/icon.png");
+    
+    match image::load_from_memory(icon_bytes) {
+        Ok(image) => {
+            let rgba = image.to_rgba8();
+            let (width, height) = rgba.dimensions();
+            egui::IconData {
+                rgba: rgba.into_raw(),
+                width: width as u32,
+                height: height as u32,
+            }
+        }
+        Err(_) => {
+            // Fallback: Tạo icon đơn giản 32x32 màu xanh
+            let size = 32;
+            let mut rgba = vec![0u8; size * size * 4];
+            for i in 0..size * size {
+                let idx = i * 4;
+                rgba[idx] = 52;      // R
+                rgba[idx + 1] = 152; // G
+                rgba[idx + 2] = 219; // B
+                rgba[idx + 3] = 255; // A
+            }
+            egui::IconData {
+                rgba,
+                width: size as u32,
+                height: size as u32,
+            }
+        }
     }
 }
 

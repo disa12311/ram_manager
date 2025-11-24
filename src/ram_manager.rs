@@ -5,9 +5,11 @@ use windows::Win32::System::Threading::{
     OpenProcess, PROCESS_ALL_ACCESS, PROCESS_SET_QUOTA, PROCESS_QUERY_INFORMATION,
     SetPriorityClass, IDLE_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS, HIGH_PRIORITY_CLASS,
 };
-use windows::Win32::System::Memory::{SetProcessWorkingSetSize, EmptyWorkingSet};
-use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
-use sysinfo::{System, ProcessExt, SystemExt, Pid};
+use windows::Win32::System::Memory::SetProcessWorkingSetSizeEx;
+use windows::Win32::System::ProcessStatus::{
+    GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, EmptyWorkingSet,
+};
+use sysinfo::{System, Process};
 
 #[derive(Clone, Debug)]
 pub struct ProcessInfo {
@@ -121,7 +123,8 @@ impl RamManager {
             let min_size = (working_set_mb * 1024 * 1024) as usize;
             let max_size = (working_set_mb * 2 * 1024 * 1024) as usize;
 
-            SetProcessWorkingSetSize(handle, min_size, max_size)
+            // Sử dụng SetProcessWorkingSetSizeEx thay vì SetProcessWorkingSetSize
+            SetProcessWorkingSetSizeEx(handle, min_size, max_size, 0)
                 .map_err(|e| format!("Không thể đặt working set: {:?}", e))?;
 
             SetPriorityClass(handle, HIGH_PRIORITY_CLASS)
@@ -142,6 +145,7 @@ impl RamManager {
             let before = self.get_process_memory_info_internal(handle)?;
             let before_ws = before.WorkingSetSize as f64 / 1024.0 / 1024.0;
 
+            // EmptyWorkingSet nằm trong ProcessStatus module
             EmptyWorkingSet(handle)
                 .map_err(|e| format!("Không thể trim working set: {:?}", e))?;
 
@@ -172,7 +176,7 @@ impl RamManager {
             let max_size = (max_ws_mb * 1024 * 1024) as usize;
             let min_size = (max_ws_mb / 2 * 1024 * 1024) as usize;
 
-            SetProcessWorkingSetSize(handle, min_size, max_size)
+            SetProcessWorkingSetSizeEx(handle, min_size, max_size, 0)
                 .map_err(|e| format!("Không thể giới hạn working set: {:?}", e))?;
 
             SetPriorityClass(handle, IDLE_PRIORITY_CLASS)
@@ -190,7 +194,8 @@ impl RamManager {
             let handle = OpenProcess(PROCESS_SET_QUOTA | PROCESS_QUERY_INFORMATION, false, pid)
                 .map_err(|e| format!("Không thể mở tiến trình: {:?}", e))?;
 
-            SetProcessWorkingSetSize(handle, usize::MAX, usize::MAX)
+            // Reset working set về auto (-1, -1)
+            SetProcessWorkingSetSizeEx(handle, usize::MAX, usize::MAX, 0)
                 .map_err(|e| format!("Không thể reset working set: {:?}", e))?;
 
             SetPriorityClass(handle, NORMAL_PRIORITY_CLASS)

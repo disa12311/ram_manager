@@ -1,5 +1,5 @@
 use eframe::egui;
-use crate::ram_manager::{ProcessInfo, ProcessStatus, RamManager};
+use crate::ram_manager::{ProcessInfo, RamManager};
 
 pub struct RamManagerApp {
     manager: RamManager,
@@ -85,7 +85,7 @@ impl eframe::App for RamManagerApp {
 
                 ui.label("💾 RAM:");
                 ui.add(
-                    egui::ProgressBar::new(usage_percent / 100.0)
+                    egui::ProgressBar::new(usage_percent as f32 / 100.0)
                         .text(format!("{:.2} / {:.2} GB ({:.1}%)", 
                             sys_info.used_ram_gb, sys_info.total_ram_gb, usage_percent))
                         .fill(ram_color)

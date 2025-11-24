@@ -1,0 +1,48 @@
+# Rust / Cargo
+/target/
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+*.rlib
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Logs
+*.log
+
+# Testing
+/tests/results/
+
+# Release builds (nếu muốn commit build)
+# Bỏ comment dòng dưới nếu muốn ignore release builds
+# /target/release/
+
+# Backup files
+*.bak
+*.tmp
+*.temp
+
+# Editor configs (có thể bỏ comment nếu muốn commit)
+# .editorconfig
+
+# Environment variables
+.env
+.env.local
